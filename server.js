@@ -14,6 +14,8 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'https://backbone-thartiy
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -21,127 +23,88 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ===== QUESTION CATEGORIES =====
 
 const BASE_RULES = `
-Role: Kamu adalah teman ngobrol yang asik, punya intuisi tajam, dan jago mencairkan suasana.
+Role: Kamu adalah teman ngobrol yang punya rasa ingin tahu tinggi, tulus, dan gak sok tahu.
 
-ATURAN OUTPUT — WAJIB DIPATUHI, TANPA PENGECUALIAN:
-1. HANYA SATU KALIMAT TANYA. Satu. Tidak lebih.
-2. Dilarang keras kasih pengantar, komentar, atau penjelasan apa pun sebelum maupun sesudah pertanyaan.
-3. Dilarang menjawab atau menebak jawaban dari pertanyaanmu sendiri.
-4. Gunakan bahasa tongkrongan yang natural — "gue/lo" atau "aku/kamu", pakai partikel santai seperti "sih", "deh", "nggak", "ya".
-5. Gaya bicara: hangat, personal, sedikit penasaran — tapi nggak kayak interogasi polisi.
-6. Output langsung pertanyaannya. Tanpa tanda kutip, tanpa nomor, tanpa label, tanpa basa-basi.
-7. GENERATE PERTANYAAN BARU yang belum pernah ada sebelumnya — jangan salin contoh, tapi ikuti gayanya.`;
+ATURAN OUTPUT — WAJIB DIPATUHI:
+1. HANYA SATU KALIMAT TANYA.
+2. Dilarang keras kasih pengantar, komentar, atau basa-basi. Langsung pertanyaannya.
+3. Dilarang berasumsi atau menebak keadaan lawan bicara. Gunakan kalimat yang mengeksplorasi (bertanya untuk tahu).
+4. Bahasa santai tongkrongan (gue/lo atau aku/kamu) dengan partikel natural (sih, ya, nggak, deh).
+5. Fokus pada pertanyaan yang bikin orang mikir "Oh iya ya, gue belum pernah cerita ini".`;
 
 const CATEGORY_PROMPTS = {
   pasangan: {
     label: 'Pasangan',
     emoji: '💕',
-    prompt: `Buat satu pertanyaan intim tentang 'unspoken feelings' antara pasangan. Fokus ke hal kecil yang bikin ngerasa dilihat atau justru ngerasa jauh — bukan pertanyaan klise.
+    prompt: `Buat satu pertanyaan eksploratif tentang hal-hal halus dalam hubungan yang sering terlewatkan. Jangan berasumsi mereka sedang ada masalah atau sangat bahagia.
 
-POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
-- Kapan sih momen terakhir kali kamu ngerasa bener-bener disayang sama aku tanpa aku harus ngomong apa-apa?
-- Ada nggak sih kebiasaan kecil aku yang sebenernya bikin kamu baper tapi kamu malu buat bilang?
-- Apa satu hal dari diri kamu yang cuma boleh aku yang tau dan orang lain nggak perlu liat?
-- Kapan kamu ngerasa paling butuh aku tapi malah milih buat diem aja?
-- Pernah nggak kamu tiba-tiba kangen aku padahal kita lagi ada di ruangan yang sama?
-- Apa sih ekspektasi ke aku yang sebenernya pengen kamu omongin tapi takut bikin aku kepikiran?
-- Momen apa yang bikin kamu mikir "Untung ya aku nemuin orang kayak dia"?
-- Ada nggak hal yang dulu kamu anggap dealbreaker tapi ternyata di aku malah bikin nyaman?
-- Bagian mana dari hari-hari kita yang paling bikin kamu ngerasa 'pulang'?
-- Kalau kita lagi berantem, sebenernya apa yang paling kamu butuhin dari aku biar bisa cepet baikan?`
+POLA CONTOH:
+- Menurut kamu, ada nggak sih hal kecil yang aku lakuin dan ternyata itu berarti banget buat kamu?
+- Pernah nggak kepikiran, bagian mana dari kebersamaan kita yang paling bikin kamu ngerasa tenang?
+- Dari semua kebiasaan aku, mana sih yang menurut kamu paling 'kamu banget' buat diterima?
+- Penasaran deh, momen kapan yang bikin kamu ngerasa kita bener-bener jadi satu tim?`
   },
 
   pertemanan: {
     label: 'Pertemanan',
     emoji: '👫',
-    prompt: `Buat satu pertanyaan yang membongkar sisi jujur di balik persahabatan. Fokus ke persepsi tersembunyi atau hal yang sering dipikirin tapi jarang diomongkan.
+    prompt: `Buat satu pertanyaan santai yang ingin tahu tentang dinamika pertemanan kalian tanpa kesan menghakimi atau interogasi.
 
-POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
-- Sejujurnya, apa sih impresi pertama lo ke gue yang ternyata salah total setelah kita kenal lama?
-- Ada nggak sifat gue yang sebenernya bikin lo agak capek tapi lo tetep maklumin?
-- Kapan momen lo ngerasa kita bener-bener 'klik' dan nggak cuma temenan formalitas doang?
-- Apa satu hal yang lo iri dari hidup gue tapi belum pernah berani lo akuin?
-- Pernah nggak lo ngerasa pengen jaga jarak bentar sama gue gara-gara hal yang sebenernya sepele?
-- Menurut lo, gue bakal jadi orang kayak gimana kalau kita nggak pernah ketemu?
-- Hal random apa yang tiba-tiba bikin lo kepikiran gue pas lagi sendirian?
-- Lo ngerasa paling jadi diri sendiri pas kita lagi ngelakuin apa sih?
-- Kalau kita berantem hebat, masalah apa yang menurut lo bisa bener-bener bikin pertemanan kita bubar?
-- Sisi gue yang mana sih yang menurut lo paling sering gue sembunyiin dari orang lain?`
+POLA CONTOH:
+- Ada nggak sih momen random yang tiba-tiba bikin lo ngerasa bersyukur kita temenan?
+- Penasaran, menurut lo hal apa yang paling beda dari gue sekarang dibanding pas pertama kita kenal?
+- Lo ngerasa paling bisa jadi diri sendiri pas kita lagi ngomongin apa sih?
+- Ada nggak kebiasaan gue yang awalnya lo anggap aneh tapi sekarang malah lo maklumin banget?`
   },
 
   keluarga: {
     label: 'Keluarga',
     emoji: '🏠',
-    prompt: `Buat satu pertanyaan yang menjembatani memori kolektif tentang rumah, tradisi kecil, atau perasaan yang jarang diungkap ke orang tua atau saudara.
+    prompt: `Buat satu pertanyaan tentang memori atau perasaan di rumah yang sifatnya mengundang cerita, bukan menyimpulkan trauma atau kebahagiaan.
 
-POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
-- Bau masakan apa yang kalau dicium langsung bikin kamu berasa ada di rumah?
-- Apa satu aturan di rumah dulu yang kamu benci banget, tapi sekarang malah kamu terapin juga?
-- Ada nggak kejadian masa kecil yang paling pengen kamu ulang sekali lagi?
-- Pernah nggak kamu ngerasa pengen bilang terima kasih ke Ayah/Ibu tapi momennya nggak pernah pas?
-- Apa satu hal tentang keluarga kita yang menurut kamu paling unik dibanding keluarga orang lain?
-- Momen apa yang paling bikin kamu ngerasa keluarga kita tuh bener-bener solid?
-- Ada nggak rahasia kecil masa kecil yang sampe sekarang orang tua kita belum tau?
-- Kalau rumah kita bisa ngomong, kira-kira dia bakal cerita apa soal masa kecil kita?
-- Apa pelajaran hidup paling berharga yang tanpa sadar kamu dapet dari ngeliat keseharian Ayah/Ibu?
-- Siapa anggota keluarga yang paling sering kamu kangenin pas lagi ngerasa capek sama dunia?`
+POLA CONTOH:
+- Apa sih benda di rumah yang kalau kamu liat langsung bikin inget momen tertentu sama keluarga?
+- Ada nggak kebiasaan di keluarga kita yang baru kamu sadari unik pas kamu main ke rumah orang lain?
+- Penasaran deh, siapa sih anggota keluarga yang paling sering kamu cari kalau lagi pengen cerita hal random?
+- Kalau inget masa kecil di rumah, suara atau bau apa yang paling nempel di ingatan kamu sampe sekarang?`
   },
 
   dalam: {
     label: 'Deep Talk',
     emoji: '🌊',
-    prompt: `Buat satu pertanyaan eksistensial yang personal dan memaksa lawan bicara pause sejenak. Fokus ke transisi diri, penyesalan, atau definisi hidup yang belum pernah diucapkan.
+    prompt: `Buat satu pertanyaan reflektif tentang pertumbuhan diri. Fokus pada "apa yang dirasakan" bukan "apa yang sudah dicapai".
 
-POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
-- Kapan terakhir kali lo ngerasa bener-bener bangga sama diri lo sendiri tanpa perlu validasi orang lain?
-- Bagian mana dari diri lo yang paling susah buat lo maafin sampe sekarang?
-- Kalau hari ini adalah hari terakhir lo, apa satu hal yang bakal paling lo sesali karena belum sempet dilakuin?
-- Apa ketakutan terbesar lo yang sebenernya nggak masuk akal tapi selalu menghantui?
-- Sejak kapan lo mulai ngerasa kalau 'dewasa' itu nggak seindah yang lo bayangin pas kecil?
-- Siapa versi diri lo yang paling pengen lo tinggalin di masa lalu?
-- Apa satu hal yang lo anggap bener lima tahun lalu tapi sekarang lo sadar itu salah banget?
-- Pernah nggak lo ngerasa kesepian banget padahal lagi ada di tengah keramaian?
-- Apa definisi 'cukup' buat lo sebelum akhirnya memutuskan buat berhenti ngejar sesuatu?
-- Kalau lo bisa ngobrol sama diri lo versi 10 tahun yang lalu, apa satu peringatan yang bakal lo kasih?`
+POLA CONTOH:
+- Kapan sih momen terakhir kali lo ngerasa bener-bener nyaman sama diri lo sendiri apa adanya?
+- Pernah nggak lo ngerasa kalau versi lo yang sekarang itu sebenernya yang lo pengenin dari dulu?
+- Hal apa sih yang belakangan ini lagi sering lo pikirin tapi belum sempet lo obrolin ke siapa-siapa?
+- Menurut lo, apa satu hal sederhana yang sebenernya bisa bikin lo ngerasa 'cukup' hari ini?`
   },
 
   nostalgia: {
     label: 'Nostalgia',
     emoji: '📸',
-    prompt: `Buat satu pertanyaan yang memicu 'sensory memory'. Fokus ke benda, lagu, suara, atau sudut kota yang menyimpan cerita masa lalu yang spesifik dan vivid.
+    prompt: `Buat satu pertanyaan yang memicu ingatan sensorik tentang masa lalu tanpa terkesan sedih atau melankolis berlebihan.
 
-POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
-- Lagu apa yang kalau diputer langsung bikin kamu inget sama seseorang atau masa-masa tertentu?
-- Ada nggak tempat yang dulu sering kamu datengin tapi sekarang udah berubah total atau nggak ada lagi?
-- Mainan atau benda apa yang paling kamu sayangi dulu sampe nggak mau pisah sedetik pun?
-- Inget nggak momen 'terakhir kali' kamu main sama temen kecil sebelum akhirnya sibuk masing-masing?
-- Siapa orang yang udah lama nggak ketemu tapi profilnya masih sering kamu lirik diem-diem?
-- Apa jajanan masa kecil yang rasanya paling nggak bisa kamu lupain sampe sekarang?
-- Suara apa yang kalau kamu denger langsung bikin kamu ngerasa balik ke masa kecil?
-- Pernah nggak kamu nemu barang lama di gudang terus tiba-tiba jadi emosional sendiri?
-- Apa satu hobi masa kecil yang sebenernya pengen banget kamu lakuin lagi tapi ngerasa udah telat?
-- Kapan momen kamu ngerasa paling bebas dan nggak punya beban apa-apa dalam hidup?`
+POLA CONTOH:
+- Ada nggak sih lagu yang kalau nggak sengaja kedenger sekarang, langsung bawa lo balik ke satu momen spesifik?
+- Penasaran, apa hal paling berani yang pernah lo lakuin pas masih kecil dan sekarang lo mikir "kok gue bisa ya"?
+- Inget nggak siapa orang dari masa lalu yang pengen banget lo tanyain kabarnya tapi nggak tau lewat mana?
+- Sudut kota mana sih yang paling banyak nyimpen cerita lo yang orang lain nggak banyak tau?`
   },
 
   seru: {
     label: 'Seru',
     emoji: '🎉',
-    prompt: `Buat satu pertanyaan 'chaos' ringan atau perdebatan sepele yang memicu tawa atau jawaban spontan yang konyol. Makin absurd makin bagus.
+    prompt: `Buat satu pertanyaan absurd yang murni karena penasaran akan pendapat konyol lawan bicara.
 
-POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
-- Jujur deh, apa hal paling nggak penting yang pernah lo beli cuma gara-gara laper mata doang?
-- Kalau lo tiba-tiba jadi presiden selama sehari, aturan konyol apa yang bakal lo buat?
-- Mending bau badan tapi ganteng/cantik maksimal, atau wangi banget tapi muka standar?
-- Apa kebiasaan paling aneh yang lo lakuin kalau lagi sendirian di kamar dan nggak ada yang liat?
-- Kalau harus makan satu jenis makanan seumur hidup, lo pilih apa dan kenapa?
-- Apa momen paling memalukan yang pernah lo alamin di depan umum tapi sekarang jadi cerita lucu?
-- Siapa karakter fiksi yang menurut lo paling 'lo banget' secara kepribadian?
-- Kalau lo dapet uang 1 miliar tapi harus diabisin dalam satu jam, lo beli apa aja?
-- Apa 'hot take' lo tentang hal sepele yang menurut lo semua orang salah paham?
-- Kalau bisa punya kekuatan super tapi yang nggak berguna sama sekali, lo mau punya kekuatan apa?`
+POLA CONTOH:
+- Kalau dunia ini tiba-tiba jadi kartun, lo ngerasa bakal jadi karakter yang kayak gimana sih?
+- Penasaran deh, apa hal paling gak masuk akal yang pernah lo percaya pas lo masih kecil dulu?
+- Menurut lo, kenapa sih orang-orang suka banget sama hal yang sebenernya nggak penting-penting amat?
+- Kalau lo harus ganti nama jadi benda mati, benda apa yang menurut lo paling cocok sama vibe lo?`
   }
 };
-
 // ===== QUESTION GENERATION =====
 function cleanOutput(raw) {
   let q = raw.trim()
@@ -174,7 +137,7 @@ async function generateWithGemini(systemPrompt, categoryLabel) {
     signal: AbortSignal.timeout(15000)
   });
 
-  if (response.status === 429) throw Object.assign(new Error('Gemini rate limit'), { rateLimited: true });
+  if (response.status === 429) throw new Error('Gemini rate limit');
   if (!response.ok) throw new Error(`Gemini error: ${response.status}`);
 
   const data = await response.json();
@@ -196,13 +159,42 @@ async function generateWithOllama(systemPrompt, categoryLabel) {
       stream: false,
       options: { temperature: 0.95, top_p: 0.9, repeat_penalty: 1.15, stop: ['\n'] }
     }),
-    signal: AbortSignal.timeout(30000)
+    signal: AbortSignal.timeout(90000)
   });
 
   if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
   const data = await response.json();
   const raw = data.message?.content || '';
   if (!raw) throw new Error('Ollama empty response');
+  return cleanOutput(raw);
+}
+
+async function generateWithGroq(systemPrompt, categoryLabel) {
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${GROQ_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Buat satu pertanyaan kategori ${categoryLabel}. #${Math.floor(Math.random() * 99999)}` }
+      ],
+      temperature: 1.0,
+      max_tokens: 120,
+      stop: ['\n']
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
+
+  if (response.status === 429) throw new Error('Groq rate limit');
+  if (!response.ok) throw new Error(`Groq error: ${response.status}`);
+
+  const data = await response.json();
+  const raw = data.choices?.[0]?.message?.content || '';
+  if (!raw) throw new Error('Groq empty response');
   return cleanOutput(raw);
 }
 
@@ -228,7 +220,16 @@ async function generateQuestion(category, previousQuestions = []) {
       q = await generateWithGemini(systemPrompt, cat.label);
       console.log('[AI] Gemini ✓');
     } catch (err) {
-      console.warn(`[AI] Gemini gagal (${err.message}), fallback ke Ollama...`);
+      console.warn(`[AI] Gemini gagal (${err.message}), fallback ke Groq...`);
+    }
+  }
+
+  if (!q && GROQ_API_KEY) {
+    try {
+      q = await generateWithGroq(systemPrompt, cat.label);
+      console.log('[AI] Groq ✓');
+    } catch (err) {
+      console.warn(`[AI] Groq gagal (${err.message}), fallback ke Ollama...`);
     }
   }
 
@@ -238,7 +239,7 @@ async function generateQuestion(category, previousQuestions = []) {
       console.log('[AI] Ollama ✓');
     } catch (err) {
       console.error(`[AI] Ollama gagal (${err.message})`);
-      throw new Error(`Semua provider gagal. Gemini: cek API key/model. Ollama: cek koneksi ke ${OLLAMA_BASE_URL}`);
+      throw new Error('Semua provider gagal (Gemini, Groq, Ollama).');
     }
   }
 
@@ -412,6 +413,7 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`\n🎴  Obrolan Kita berjalan di → http://localhost:${PORT}`);
-  console.log(`🤖  AI utama : ${GEMINI_API_KEY ? `Gemini (${GEMINI_MODEL})` : 'tidak dikonfigurasi'}`);
-  console.log(`🔁  Fallback : Ollama ${OLLAMA_BASE_URL} (${OLLAMA_MODEL})\n`);
+  console.log(`🤖  AI utama : ${GEMINI_API_KEY ? `Gemini (${GEMINI_MODEL})` : '—'}`);
+  console.log(`🔁  Fallback 1: ${GROQ_API_KEY ? `Groq (${GROQ_MODEL})` : '— (GROQ_API_KEY tidak diset)'}`);
+  console.log(`🔁  Fallback 2: Ollama ${OLLAMA_BASE_URL} (${OLLAMA_MODEL})\n`);
 });
