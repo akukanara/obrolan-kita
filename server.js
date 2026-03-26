@@ -13,7 +13,7 @@ const io = new Server(httpServer);
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'https://backbone-thartiyali.nicecurry.fun';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemma-3-27b-it';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -160,9 +160,8 @@ async function generateWithGemini(systemPrompt, categoryLabel) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [
-        { role: 'user', parts: [{ text: systemPrompt }] },
-        { role: 'model', parts: [{ text: 'Siap.' }] },
         { role: 'user', parts: [{ text: `Buat satu pertanyaan kategori ${categoryLabel}. #${Math.floor(Math.random() * 99999)}` }] }
       ],
       generationConfig: {
@@ -207,27 +206,42 @@ async function generateWithOllama(systemPrompt, categoryLabel) {
   return cleanOutput(raw);
 }
 
+// Global pool per kategori — shared across all rooms/sessions
+const globalUsed = {};
+Object.keys(CATEGORY_PROMPTS).forEach(k => { globalUsed[k] = []; });
+
 async function generateQuestion(category, previousQuestions = []) {
   const cat = CATEGORY_PROMPTS[category] || CATEGORY_PROMPTS.pasangan;
-  const avoidClause = previousQuestions.length > 0
-    ? `\n\nHINDARI pertanyaan yang mirip dengan ini: ${previousQuestions.slice(-8).map(q => `"${q}"`).join(', ')}`
+
+  // Gabung global pool + room history, dedupe, ambil 12 terakhir
+  const allUsed = [...new Set([...(globalUsed[category] || []), ...previousQuestions])].slice(-12);
+  const avoidClause = allUsed.length > 0
+    ? `\n\nHINDARI pertanyaan yang mirip dengan ini:\n${allUsed.map(q => `- "${q}"`).join('\n')}`
     : '';
 
   // BASE_RULES dulu (role + output rules), baru category focus
   const systemPrompt = `${BASE_RULES}\n\n=== FOKUS KATEGORI: ${cat.label.toUpperCase()} ===\n${cat.prompt}${avoidClause}`;
 
+  let q;
   if (GEMINI_API_KEY) {
     try {
-      const q = await generateWithGemini(systemPrompt, cat.label);
+      q = await generateWithGemini(systemPrompt, cat.label);
       console.log('[AI] Gemini ✓');
-      return q;
     } catch (err) {
       console.warn(`[AI] Gemini gagal (${err.message}), fallback ke Ollama...`);
     }
   }
 
-  const q = await generateWithOllama(systemPrompt, cat.label);
-  console.log('[AI] Ollama ✓');
+  if (!q) {
+    q = await generateWithOllama(systemPrompt, cat.label);
+    console.log('[AI] Ollama ✓');
+  }
+
+  // Simpan ke global pool, max 50 per kategori
+  const pool = globalUsed[category] || (globalUsed[category] = []);
+  pool.push(q);
+  if (pool.length > 50) pool.splice(0, pool.length - 50);
+
   return q;
 }
 
