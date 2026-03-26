@@ -233,8 +233,13 @@ async function generateQuestion(category, previousQuestions = []) {
   }
 
   if (!q) {
-    q = await generateWithOllama(systemPrompt, cat.label);
-    console.log('[AI] Ollama ✓');
+    try {
+      q = await generateWithOllama(systemPrompt, cat.label);
+      console.log('[AI] Ollama ✓');
+    } catch (err) {
+      console.error(`[AI] Ollama gagal (${err.message})`);
+      throw new Error(`Semua provider gagal. Gemini: cek API key/model. Ollama: cek koneksi ke ${OLLAMA_BASE_URL}`);
+    }
   }
 
   // Simpan ke global pool, max 50 per kategori
