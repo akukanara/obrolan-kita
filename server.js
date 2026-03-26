@@ -154,7 +154,7 @@ function cleanOutput(raw) {
   return q;
 }
 
-async function generateWithGemini(systemPrompt) {
+async function generateWithGemini(systemPrompt, categoryLabel) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   const response = await fetch(url, {
     method: 'POST',
@@ -163,7 +163,7 @@ async function generateWithGemini(systemPrompt) {
       contents: [
         { role: 'user', parts: [{ text: systemPrompt }] },
         { role: 'model', parts: [{ text: 'Siap.' }] },
-        { role: 'user', parts: [{ text: `Satu pertanyaan. #${Math.floor(Math.random() * 99999)}` }] }
+        { role: 'user', parts: [{ text: `Buat satu pertanyaan kategori ${categoryLabel}. #${Math.floor(Math.random() * 99999)}` }] }
       ],
       generationConfig: {
         temperature: 1.0,
@@ -184,7 +184,7 @@ async function generateWithGemini(systemPrompt) {
   return cleanOutput(raw);
 }
 
-async function generateWithOllama(systemPrompt) {
+async function generateWithOllama(systemPrompt, categoryLabel) {
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -192,7 +192,7 @@ async function generateWithOllama(systemPrompt) {
       model: OLLAMA_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: 'Satu pertanyaan.' }
+        { role: 'user', content: `Buat satu pertanyaan kategori ${categoryLabel}.` }
       ],
       stream: false,
       options: { temperature: 0.95, top_p: 0.9, repeat_penalty: 1.15, stop: ['\n'] }
@@ -212,11 +212,13 @@ async function generateQuestion(category, previousQuestions = []) {
   const avoidClause = previousQuestions.length > 0
     ? `\n\nHINDARI pertanyaan yang mirip dengan ini: ${previousQuestions.slice(-8).map(q => `"${q}"`).join(', ')}`
     : '';
-  const systemPrompt = `${cat.prompt}\n${BASE_RULES}${avoidClause}`;
+
+  // BASE_RULES dulu (role + output rules), baru category focus
+  const systemPrompt = `${BASE_RULES}\n\n=== FOKUS KATEGORI: ${cat.label.toUpperCase()} ===\n${cat.prompt}${avoidClause}`;
 
   if (GEMINI_API_KEY) {
     try {
-      const q = await generateWithGemini(systemPrompt);
+      const q = await generateWithGemini(systemPrompt, cat.label);
       console.log('[AI] Gemini ✓');
       return q;
     } catch (err) {
@@ -224,7 +226,7 @@ async function generateQuestion(category, previousQuestions = []) {
     }
   }
 
-  const q = await generateWithOllama(systemPrompt);
+  const q = await generateWithOllama(systemPrompt, cat.label);
   console.log('[AI] Ollama ✓');
   return q;
 }
