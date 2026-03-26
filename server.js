@@ -163,11 +163,11 @@ async function generateWithGemini(systemPrompt) {
       contents: [
         { role: 'user', parts: [{ text: systemPrompt }] },
         { role: 'model', parts: [{ text: 'Siap.' }] },
-        { role: 'user', parts: [{ text: 'Satu pertanyaan.' }] }
+        { role: 'user', parts: [{ text: `Satu pertanyaan. #${Math.floor(Math.random() * 99999)}` }] }
       ],
       generationConfig: {
-        temperature: 0.95,
-        topP: 0.9,
+        temperature: 1.0,
+        topP: 0.95,
         maxOutputTokens: 120,
         stopSequences: ['\n']
       }
