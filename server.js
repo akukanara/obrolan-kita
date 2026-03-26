@@ -11,7 +11,9 @@ const httpServer = createServer(app);
 const io = new Server(httpServer);
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'https://backbone-thartiyali.nicecurry.fun';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -141,14 +143,45 @@ POLA CONTOH — ikuti gaya dan kedalamannya, tapi BUAT YANG BERBEDA:
 };
 
 // ===== QUESTION GENERATION =====
-async function generateQuestion(category, previousQuestions = []) {
-  const cat = CATEGORY_PROMPTS[category] || CATEGORY_PROMPTS.pasangan;
-  const avoidClause = previousQuestions.length > 0
-    ? `\n\nHINDARI pertanyaan yang mirip dengan ini: ${previousQuestions.slice(-8).map(q => `"${q}"`).join(', ')}`
-    : '';
+function cleanOutput(raw) {
+  let q = raw.trim()
+    .replace(/^["'`*#\-–—]+\s*/g, '')
+    .replace(/^\d+\.\s*/, '')
+    .split(/\n/)[0]
+    .trim();
+  const firstQ = q.match(/^[^?]+\?/);
+  if (firstQ) q = firstQ[0].trim();
+  return q;
+}
 
-  const systemPrompt = `${cat.prompt}\n${BASE_RULES}${avoidClause}`;
+async function generateWithGemini(systemPrompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: 'Satu pertanyaan.' }] }],
+      generationConfig: {
+        temperature: 0.95,
+        topP: 0.9,
+        maxOutputTokens: 120,
+        stopSequences: ['\n']
+      }
+    }),
+    signal: AbortSignal.timeout(15000)
+  });
 
+  if (response.status === 429) throw Object.assign(new Error('Gemini rate limit'), { rateLimited: true });
+  if (!response.ok) throw new Error(`Gemini error: ${response.status}`);
+
+  const data = await response.json();
+  const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  if (!raw) throw new Error('Gemini empty response');
+  return cleanOutput(raw);
+}
+
+async function generateWithOllama(systemPrompt) {
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -159,32 +192,37 @@ async function generateQuestion(category, previousQuestions = []) {
         { role: 'user', content: 'Satu pertanyaan.' }
       ],
       stream: false,
-      options: {
-        temperature: 0.95,
-        top_p: 0.9,
-        repeat_penalty: 1.15,
-        stop: ['\n']
-      }
+      options: { temperature: 0.95, top_p: 0.9, repeat_penalty: 1.15, stop: ['\n'] }
     }),
     signal: AbortSignal.timeout(30000)
   });
 
   if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
-
   const data = await response.json();
   const raw = data.message?.content || '';
+  if (!raw) throw new Error('Ollama empty response');
+  return cleanOutput(raw);
+}
 
-  // Bersihkan output: ambil hanya kalimat pertama yang diakhiri tanda tanya
-  let q = raw.trim()
-    .replace(/^["'`*#\-–—]+\s*/g, '')   // hapus leading punctuation
-    .replace(/^\d+\.\s*/, '')             // hapus "1. "
-    .split(/\n/)[0]                       // ambil baris pertama saja
-    .trim();
+async function generateQuestion(category, previousQuestions = []) {
+  const cat = CATEGORY_PROMPTS[category] || CATEGORY_PROMPTS.pasangan;
+  const avoidClause = previousQuestions.length > 0
+    ? `\n\nHINDARI pertanyaan yang mirip dengan ini: ${previousQuestions.slice(-8).map(q => `"${q}"`).join(', ')}`
+    : '';
+  const systemPrompt = `${cat.prompt}\n${BASE_RULES}${avoidClause}`;
 
-  // Jika ada lebih dari satu kalimat, ambil hanya sampai tanda tanya pertama
-  const firstQ = q.match(/^[^?]+\?/);
-  if (firstQ) q = firstQ[0].trim();
+  if (GEMINI_API_KEY) {
+    try {
+      const q = await generateWithGemini(systemPrompt);
+      console.log('[AI] Gemini ✓');
+      return q;
+    } catch (err) {
+      console.warn(`[AI] Gemini gagal (${err.message}), fallback ke Ollama...`);
+    }
+  }
 
+  const q = await generateWithOllama(systemPrompt);
+  console.log('[AI] Ollama ✓');
   return q;
 }
 
@@ -350,5 +388,6 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`\n🎴  Obrolan Kita berjalan di → http://localhost:${PORT}`);
-  console.log(`🤖  Ollama: ${OLLAMA_BASE_URL} (${OLLAMA_MODEL})\n`);
+  console.log(`🤖  AI utama : ${GEMINI_API_KEY ? `Gemini (${GEMINI_MODEL})` : 'tidak dikonfigurasi'}`);
+  console.log(`🔁  Fallback : Ollama ${OLLAMA_BASE_URL} (${OLLAMA_MODEL})\n`);
 });
