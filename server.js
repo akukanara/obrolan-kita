@@ -13,7 +13,7 @@ const io = new Server(httpServer);
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'https://backbone-thartiyali.nicecurry.fun';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:3b';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemma-3-27b-it';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -160,8 +160,11 @@ async function generateWithGemini(systemPrompt) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents: [{ role: 'user', parts: [{ text: 'Satu pertanyaan.' }] }],
+      contents: [
+        { role: 'user', parts: [{ text: systemPrompt }] },
+        { role: 'model', parts: [{ text: 'Siap.' }] },
+        { role: 'user', parts: [{ text: 'Satu pertanyaan.' }] }
+      ],
       generationConfig: {
         temperature: 0.95,
         topP: 0.9,
